@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <milan.burda@gmail.com>
+Date: Sat, 28 Sep 2019 10:39:58 +0200
+Subject: fix: when building with enable_basic_printing=false
+
+
+diff --git a/chrome/browser/printing/printing_service.cc b/chrome/browser/printing/printing_service.cc
+index 9b0f43d94ace424fd67b15a8e8b01d85aa5dbfbd..306a1ff4f21eb6e19ff5afe668b6bfcfd6809bf2 100644
+--- a/chrome/browser/printing/printing_service.cc
++++ b/chrome/browser/printing/printing_service.cc
+@@ -7,10 +7,12 @@
+ #include "base/no_destructor.h"
+ #include "chrome/grit/generated_resources.h"
+ #include "content/public/browser/service_process_host.h"
++#include "printing/buildflags/buildflags.h"
+ 
+ const mojo::Remote<printing::mojom::PrintingService>& GetPrintingService() {
+   static base::NoDestructor<mojo::Remote<printing::mojom::PrintingService>>
+       remote;
++#if BUILDFLAG(ENABLE_PRINTING)
+   if (!*remote) {
+     content::ServiceProcessHost::Launch(
+         remote->BindNewPipeAndPassReceiver(),
+@@ -27,6 +29,6 @@ const mojo::Remote<printing::mojom::PrintingService>& GetPrintingService() {
+     remote->reset_on_disconnect();
+     remote->reset_on_idle_timeout(base::TimeDelta::FromSeconds(5));
+   }
+-
++#endif
+   return *remote;
+ }

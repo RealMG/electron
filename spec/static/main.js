@@ -11,6 +11,7 @@ const v8 = require('v8')
 
 const argv = require('yargs')
   .boolean('ci')
+  .array('files')
   .string('g').alias('g', 'grep')
   .boolean('i').alias('i', 'invert')
   .argv
@@ -42,6 +43,10 @@ ipcMain.on('message', function (event, ...args) {
   event.sender.send('message', ...args)
 })
 
+ipcMain.handle('get-modules', () => Object.keys(electron))
+ipcMain.handle('get-temp-dir', () => app.getPath('temp'))
+ipcMain.handle('ping', () => null)
+
 // Set productName so getUploadedReports() uses the right directory in specs
 if (process.platform !== 'darwin') {
   crashReporter.productName = 'Zombies'
@@ -72,20 +77,13 @@ ipcMain.on('echo', function (event, msg) {
 })
 
 global.setTimeoutPromisified = util.promisify(setTimeout)
+global.returnAPromise = (value) => new Promise((resolve) => setTimeout(() => resolve(value), 100))
 
-global.permissionChecks = {
-  allow: () => electron.session.defaultSession.setPermissionCheckHandler(null),
-  reject: () => electron.session.defaultSession.setPermissionCheckHandler(() => false)
-}
-
-global.isCi = !!argv.ci
-if (global.isCi) {
-  process.removeAllListeners('uncaughtException')
-  process.on('uncaughtException', function (error) {
-    console.error(error, error.stack)
-    process.exit(1)
-  })
-}
+process.removeAllListeners('uncaughtException')
+process.on('uncaughtException', function (error) {
+  console.error(error, error.stack)
+  process.exit(1)
+})
 
 global.nativeModulesEnabled = !process.env.ELECTRON_SKIP_NATIVE_MODULE_TESTS
 
@@ -124,7 +122,7 @@ app.on('ready', function () {
 
   window = new BrowserWindow({
     title: 'Electron Tests',
-    show: !global.isCi,
+    show: false,
     width: 800,
     height: 600,
     webPreferences: {
@@ -136,7 +134,8 @@ app.on('ready', function () {
   window.loadFile('static/index.html', {
     query: {
       grep: argv.grep,
-      invert: argv.invert ? 'true' : ''
+      invert: argv.invert ? 'true' : '',
+      files: argv.files ? argv.files.join(',') : undefined
     }
   })
   window.on('unresponsive', function () {
@@ -151,19 +150,6 @@ app.on('ready', function () {
   window.webContents.on('crashed', function () {
     console.error('Renderer process crashed')
     process.exit(1)
-  })
-
-  ipcMain.on('prevent-next-input-event', (event, key, id) => {
-    webContents.fromId(id).once('before-input-event', (event, input) => {
-      if (key === input.key) event.preventDefault()
-    })
-    event.returnValue = null
-  })
-})
-
-ipcMain.on('handle-next-ipc-message-sync', function (event, returnValue) {
-  event.sender.once('ipc-message-sync', (event, channel, args) => {
-    event.returnValue = returnValue
   })
 })
 
@@ -196,21 +182,6 @@ ipcMain.on('set-client-certificate-option', function (event, skip) {
   event.returnValue = 'done'
 })
 
-ipcMain.on('create-window-with-options-cycle', (event) => {
-  // This can't be done over remote since cycles are already
-  // nulled out at the IPC layer
-  const foo = {}
-  foo.bar = foo
-  foo.baz = {
-    hello: {
-      world: true
-    }
-  }
-  foo.baz2 = foo.baz
-  const window = new BrowserWindow({ show: false, foo: foo })
-  event.returnValue = window.id
-})
-
 ipcMain.on('prevent-next-will-attach-webview', (event) => {
   event.sender.once('will-attach-webview', event => event.preventDefault())
 })
@@ -228,25 +199,6 @@ ipcMain.on('disable-preload-on-next-will-attach-webview', (event, id) => {
     delete webPreferences.preload
     delete webPreferences.preloadURL
   })
-})
-
-ipcMain.on('try-emit-web-contents-event', (event, id, eventName) => {
-  const consoleWarn = console.warn
-  const contents = webContents.fromId(id)
-  const listenerCountBefore = contents.listenerCount(eventName)
-
-  console.warn = (warningMessage) => {
-    console.warn = consoleWarn
-
-    const listenerCountAfter = contents.listenerCount(eventName)
-    event.returnValue = {
-      warningMessage,
-      listenerCountBefore,
-      listenerCountAfter
-    }
-  }
-
-  contents.emit(eventName, { sender: contents })
 })
 
 ipcMain.on('handle-uncaught-exception', (event, message) => {
